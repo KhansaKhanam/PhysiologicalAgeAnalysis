@@ -1,0 +1,619 @@
+```{r}
+#install.packages("nhanesA")
+```
+```{r}
+# Visulizing cox regression
+#install.packages(c("survival","forestplot","broom"))
+```
+```{r}
+library(nhanesA)
+library(dplyr)
+library(coxphw)
+library(survey)
+library(survival)
+library(ggplot2)
+library(ggfortify)
+library(forestplot)
+library(broom)
+```
+
+```{r}
+demo_f <- nhanes("DEMO_F", translate=FALSE)
+demo_g <- nhanes("DEMO_G", translate=FALSE)
+demo_h <- nhanes("DEMO_H", translate=FALSE)
+demo_i <- nhanes("DEMO_I", translate=FALSE)
+demo_j <- nhanes("DEMO_J", translate=FALSE)
+```
+```{r}
+demo_f <- demo_f %>% select(SEQN, SDMVPSU, SDMVSTRA)
+demo_g <- demo_g %>% select(SEQN, SDMVPSU, SDMVSTRA)
+demo_h <- demo_h %>% select(SEQN, SDMVPSU, SDMVSTRA)
+demo_i <- demo_i %>% select(SEQN, SDMVPSU, SDMVSTRA)
+demo_j <- demo_j %>% select(SEQN, SDMVPSU, SDMVSTRA)
+```
+```{r}
+demo <- bind_rows(demo_f, demo_g, demo_h, demo_i, demo_j)
+demo <- demo %>% distinct(SEQN, .keep_all=TRUE)
+```
+
+```{r}
+#install.packages("ggfortify")
+```
+
+```{r}
+surv_attr_norm <- c("ordnor_BMXBMI",
+                    "ordnor_BMXWAIST",
+                    "ordnor_URXUMA",
+                    "ordnor_URXUCR",
+                    "ordnor_URDACT",
+                    "ordnor_LBXRBCSI",
+                    "ordnor_LBXWBCSI",
+                    "ordnor_LBXPLTSI",
+                    "ordnor_LBDLYMNO",
+                    "ordnor_LBDMONO",
+                    "ordnor_LBDNENO",
+                    "ordnor_LBXHGB",
+                    "ordnor_LBXHCT",
+                    "ordnor_LBXSAL",
+                    "ordnor_LBXSATSI",
+                    "ordnor_LBXSASSI",
+                    "ordnor_LBXSAPSI",
+                    "ordnor_LBXSCR",
+                    "ordnor_LBXSGTSI",
+                    "ordnor_LBXSTB",
+                    "ordnor_LBXIN",
+                    "ordnor_LBXGLU",
+                    "ordnor_LBXGH",
+                    "ordnor_LBXTR",
+                    "ordnor_LBXTC",
+                    "ordnor_LBDLDL",
+                    "ordnor_LBDHDD",
+                    "ordnor_SSKLOTH",
+                    "ordnor_SSSNFL",
+                    "ordnor_BSA",
+                    "ordnor_WAISTMF",
+                    "ordnor_PLASMAVOL",
+                    "ordnor_RVALUE",
+                    "ordnor_FATTYLIVER" ,
+                    "ordnor_DILI",
+                    "ordnor_HSI",
+                    "ordnor_EGFR",
+                    "ordnor_SII",
+                    "ordnor_EGFRxBSA",
+                    "ordnor_URDFLOW_AVG",
+                    "ordnor_HOMA_IR",
+                    "ordnor_HOMA_BETA",
+                    "ordnor_SBP_AVG",
+                    "ordnor_DBP_AVG",
+                    "ordnor_CYP1A2",
+                    "ordnor_CYP2A6_caffiene",
+                    "ordnor_XO",
+                    "ordnor_NAT2",
+                    "ordnor_CYP2A6_smoking",
+                    "ordnor_CYP2E1",
+                    "DiabetesYesNo",
+                    "PreDiabetesOrDiabetesYesNo",
+                    "InsulinYesNo",
+                    "DialysisYesNo",
+                    "KidneyDiseaseYesNo",
+                    "HeartAttackYesNo",
+                    "CongestiveHeartFailureYesNo",
+                    "CoronaryHeartDiseaseYesNo",
+                    "AnginaPectorisYesNo",
+                    "ActiveLiverDiseaseYesNo",
+                    "PastLiverDiseaseYesNo",
+                    "HepatitisCYesNo",
+                    "HepatitisBYesNo",
+                    "StrokeYesNo",
+                    "diabetesprediabetes",
+                    "diabetes_cat"
+               )
+```
+```{r}
+length(surv_attr_norm)
+```
+```{r}
+# Read the RDS file into a data frame
+data_df <- readRDS("~/Documents/PA_analysis/Datasets/NormalizedData/OrderNormalizedData.rds")
+
+data_df <- left_join(data_df, demo, by = "SEQN")
+colnames(data_df)
+```
+```{r}
+head(data_df)
+```
+
+```{r}
+na_counts <- colSums(!is.na(data_df[,c("AGE_TOD", "SEQN", "mortstat", "permth_int", "SDMVPSU","SDMVSTRA","WTMEC2YR","RIAGENDR","RIDRETH1", "RIDAGEYR",surv_attr_norm)]))
+na_counts
+```
+```{r}
+# Convert the na_counts vector to a data frame using the data.frame() method
+na_counts_df<- data.frame(Attribute = names(na_counts), NonMissingCount = na_counts)
+# Sort the data frame by NonMissingCount in descending order
+na_counts_df <- na_counts_df[order(-na_counts_df$NonMissingCount), ]
+rownames(na_counts_df) <- NULL
+print(na_counts_df)
+```
+
+```{r}
+# Assuming na_counts_df is already sorted in descending order by NonMissingCount
+# Select the first 30 rows and then the 'Attribute' column
+skip_cols <- c("AGE_TOD", "SEQN", "mortstat", "permth_int", "SDMVPSU", 
+               "SDMVSTRA", "WTMEC2YR", "RIAGENDR", "RIDRETH1", "RIDAGEYR","diabetes_cat")
+
+top_attr <- na_counts_df[ !na_counts_df$Attribute %in% skip_cols, "Attribute" ][1:50]
+print(top_attr)
+```
+```{r}
+data_df <- na.omit(data_df[,c("AGE_TOD", "SEQN", "mortstat", "permth_int", "SDMVPSU","SDMVSTRA", "WTMEC2YR", "RIAGENDR", "RIDRETH1", "RIDAGEYR",top_attr)])
+names(data_df)
+```
+```{r}
+nrow(data_df)
+```
+```{r}
+table(data_df$mortstat)
+```
+```{r}
+# install.packages("naniar")
+```
+
+```{r}
+library(naniar)
+pdf("~/Documents/PA_analysis/Datasets/NormalizedData/missing_data.pdf")
+gg_miss_var(data_df,show_pct = TRUE) + 
+  labs(title = "Missing Data Percentage by Variable")
+dev.off()
+```
+
+```{r}
+#install.packages(c("mlsurvlrnrs","mlexperiments","splitTools","data.table"))
+```
+```{r}
+# THIS PART DEALS WITH CONVERTING ALL ATTRIBUTES TO EITHER NUMERIC OR INTEGER TYPE - XGBOOST CAN ONLY ACCEPT NUMERIC OR INTEGERS
+# ITS VERY IMPORTANT TO CONVERT FACTORS INTO CHARACTERS AND THEN NUMERIC TO PRESERVE THEIR VALUE
+type_data_df <- sapply(data_df, class)
+attr_types <- data.frame(Attribute = names(type_data_df), DataType = as.character(type_data_df))
+attr_types
+```
+```{r}
+data_df$diabetes_cat <- NULL
+"diabetes_cat" %in% names(data_df)
+```
+```{r}
+yesno_cols <- c("InsulinYesNo","PreDiabetesOrDiabetesYesNo","DiabetesYesNo","HepatitisBYesNo","HepatitisCYesNo","StrokeYesNo","DialysisYesNo","KidneyDiseaseYesNo","HeartAttackYesNo","PastLiverDiseaseYesNo","CongestiveHeartFailureYesNo","AnginaPectorisYesNo","CoronaryHeartDiseaseYesNo","ActiveLiverDiseaseYesNo")
+other_fact <- "diabetesprediabetes"
+```
+
+```{r}
+library(dplyr)
+```
+```{r}
+df <- data_df[,names(data_df)]
+names(df)
+```
+
+```{r}
+df <- df %>% mutate(across(all_of(yesno_cols), ~case_when(
+  . == "No" ~ 0,
+  . == "Yes" ~ 1,
+  TRUE ~ NA_real_
+)))
+```
+```{r}
+df <- df %>% mutate(across(all_of(other_fact), ~case_when(
+  . == "None" ~ 0,
+  . == "PreDiabetes" ~ 1,
+  . == "Diabetes" ~ 2,
+  TRUE ~ NA_real_
+)))
+```
+```{r}
+df$RIDRETH1 <- as.numeric(as.character(df$RIDRETH1))
+df$RIAGENDR <- as.numeric(as.character(df$RIAGENDR))
+```
+
+```{r}
+type_data_df <- data.frame(
+  variable = names(data_df),
+  class = sapply(data_df, function(x) class(x)[1]),
+  row.names = NULL,
+  stringsAsFactors = FALSE
+)
+type_data_df
+```
+```{r}
+type_df <- data.frame(
+  variable = names(df),
+  class = sapply(df, function(x) class(x)[1]),
+  row.names = NULL,
+  stringsAsFactors = FALSE
+)
+type_df
+```
+
+```{r}
+head(data_df)
+```
+```{r}
+head(df)
+```
+
+Cox regression assumes the effect of any variable is constant over time. But in a real time scenario its a rather unlikely assumption, we would need to estimate how each variable and what percentage each variable contributes at different timestamps. Ideally variables contribute differently at different time stamp, the slope value gives a good analysis of that change.
+
+This also helps us track down when the variable is not contributing effectively at an early stage.
+
+Lets take an example of a glass of water, many drops eventually fill up the glass. Here the drops indicate the timestamp and each variable's contribution differs for each drop.
+
+The summary includes:
+
+* Slope: gives an analysis of how the contribution of the variable is with time
+* coef: regression value to estimate the overall influence of each variable in relation to other variables
+* exp(coef): the percentage of change
+* z-test: how much the sample differs from the population
+* p-test: significance of each attribute
+```{r}
+cox_analysis <- function(data,
+                         surv_attr,
+                         output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/cox_reg.csv",
+                         adj_p_file =  "~/Documents/PA_analysis/Datasets/NormalizedData/adj_p_cox_reg.csv"
+                         ) 
+  {
+  get_signif <- function(p) {
+    if (is.na(p)) return("")
+    else if (p < 0.001) return("***")
+    else if (p < 0.01) return("**")
+    else if (p < 0.1) return(".")
+    else return(" ")
+  }
+
+  data$RIAGENDR <- factor(data$RIAGENDR)
+  data$RIDRETH1 <- factor(data$RIDRETH1)
+
+  result <- data.frame(
+    model_attribute = character(),
+    variable = character(),
+    coef = numeric(),
+    exp_coef = numeric(),
+    se_coef = numeric(),
+    z = numeric(),
+    p = numeric(),
+    signif = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  pb <- txtProgressBar(min = 0, max = length(surv_attr))
+
+  for (i in seq_along(surv_attr)) {
+    a <- surv_attr[i]
+    tryCatch({
+      formula <- as.formula(paste("Surv(permth_int, mortstat) ~", a, "+ RIAGENDR + RIDRETH1 + RIDAGEYR"))
+      model <- coxph(formula, data = data, na.action = na.exclude)
+
+      model_sum <- summary(model)
+      coef_df <- as.data.frame(model_sum$coefficients)
+      coef_df$variable <- rownames(model_sum$coefficients)
+      coef_df$model_attribute <- a
+      coef_df$signif <- sapply(coef_df$`Pr(>|z|)`, get_signif)
+
+      new_row <- coef_df[,c("model_attribute", "variable", "coef", "exp(coef)", "se(coef)", "z", "Pr(>|z|)", "signif")]
+      colnames(new_row) <- c("model_attribute", "variable", "coef", "exp_coef", "se_coef", "z", "p", "signif")
+      result <- rbind(result,new_row)
+    }, error = function(e) {
+      message("\nSkipping ", a, ": ", conditionMessage(e))
+    })
+    setTxtProgressBar(pb, i)
+  }
+  close(pb)
+  
+  filtered_result <- subset(result, model_attribute == variable)
+  filtered_result$adj_p <- p.adjust(filtered_result$p,method="BH")
+  filtered_result$adj_signif <- sapply(filtered_result$adj_p, get_signif)
+  filtered_result <- filtered_result[order(-filtered_result$adj_p), ]
+  
+  write.csv(result, file = output_file, row.names = FALSE)
+  write.csv(filtered_result, file = adj_p_file,row.names = FALSE)
+}
+```
+
+```{r}
+cox_analysis(
+  data = data_df,
+  surv_attr = top_attr
+)
+```
+*Weighted Cox Regression*
+Weighted Cox regression is an extension of the standard Cox proportional hazards model. It allows you to assign a weight to each observation, so some individuals contribute more or less to the estimation of hazard ratios. 
+```{r}
+#In `coxphw`, the “weights” in the documentation refer to internal event-time weights computed for AHR estimation—not to user-supplied sample weights
+
+library(survival)
+coxph_analysis_weighted <- function(data,
+                                    surv_attr,
+                                    output_file = "coxph_reg_weighted.csv",
+                                    adj_p_file =  "~/Documents/PA_analysis/Datasets/NormalizedData/adj_p_coxph_reg_weighted.csv"
+                                    ) 
+  {
+  get_signif <- function(p) {
+    if (is.na(p)) return("")
+    else if (p < 0.001) return("***")
+    else if (p < 0.01) return("**")
+    else if (p < 0.05) return("*")
+    else if (p < 0.1) return(".")
+    else return(" ")
+  }
+
+  # Ensure RIAGENDR and RIDRETH1 are factors
+  data$RIAGENDR  <- factor(data$RIAGENDR)
+  data$RIDRETH1  <- factor(data$RIDRETH1)
+
+  # Ensure weights are numeric
+  data$WTMEC2YR <- as.numeric(as.character(data$WTMEC2YR))
+
+  result <- data.frame(
+    model_attribute = character(),
+    variable        = character(),
+    coef            = numeric(),
+    exp_coef        = numeric(),
+    se_coef         = numeric(),
+    z               = numeric(),
+    p               = numeric(),
+    signif          = character(),
+    stringsAsFactors = FALSE
+  )
+
+  pb <- txtProgressBar(min = 0, max = length(surv_attr), style = 3)
+
+  for (i in seq_along(surv_attr)) {
+    a <- surv_attr[i]
+
+    tryCatch({
+      model_formula <- as.formula(paste("Surv(permth_int, mortstat) ~", a, 
+                                        "+ RIAGENDR + RIDRETH1 + RIDAGEYR"))
+
+      fit <- coxph(
+        formula = model_formula,
+        data    = data,
+        weights = data$WTMEC2YR,  # NHANES design weights
+        ties    = "efron",
+        robust  = TRUE  # Robust standard errors
+      )
+
+      s <- summary(fit)
+      coef_df <- as.data.frame(s$coefficients)
+      coef_df$variable <- rownames(coef_df)
+      coef_df$model_attribute <- a
+      coef_df$signif <- sapply(coef_df$`Pr(>|z|)`, get_signif)
+      
+      new_row <- coef_df[, c("model_attribute", "variable", "coef", "exp(coef)", 
+                             "se(coef)", "z", "Pr(>|z|)", "signif")]
+      names(new_row) <- c("model_attribute", "variable", "coef", "exp_coef",
+                          "se_coef", "z", "p", "signif")
+
+      result <- rbind(result, new_row)
+
+    }, error = function(e) {
+      message("\nSkipping ", a, ": ", conditionMessage(e))
+    })
+
+    setTxtProgressBar(pb, i)
+  }
+
+  close(pb)
+  filtered_result <- subset(result, model_attribute == variable)
+
+  # Adjust p-values
+  filtered_result$adj_p <- p.adjust(filtered_result$p, method = "BH")
+  filtered_result$adj_signif <- sapply(filtered_result$adj_p, get_signif)
+  filtered_result <- filtered_result[order(filtered_result$adj_p), ]
+
+  # Save results
+  write.csv(result, file = output_file, row.names = FALSE)
+  write.csv(filtered_result, file = adj_p_file, row.names = FALSE)
+}
+```
+
+```{r}
+coxph_analysis_weighted(
+  data = data_df,
+  surv_attr = top_attr,
+  output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/coxph_reg_weighted.csv",
+  adj_p_file = "~/Documents/PA_analysis/Datasets/NormalizedData/coxph_reg_weighted_signif.csv"
+)
+```
+```{r}
+svycoxph_cox <- function(
+  data,
+  nhanes_design,
+  surv_attr,
+  output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/svycoxph_reg.csv",
+  signif_output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/adj_p_svycoxph_reg.csv"
+) {
+  get_signif <- function(p) {
+    if (is.na(p)) return("")
+    else if (p < 0.001) return("***")
+    else if (p < 0.01) return("**")
+    else if (p < 0.05) return("*")
+    else if (p < 0.1) return(".")
+    else return(" ")
+  }
+  
+  results_df <- data.frame(
+    model_attribute = character(),
+    variable = character(),
+    coef = numeric(),
+    exp_coef = numeric(),
+    se_coef = numeric(),
+    z = numeric(),
+    p = numeric(),
+    signif = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  pb <- txtProgressBar(min = 0, max = length(surv_attr), style = 3)
+
+  for (i in seq_along(surv_attr)) {
+    a <- surv_attr[i]
+
+    if (!a %in% names(data)) {
+      message("⚠️ Skipping ", a, ": not found in data.")
+      setTxtProgressBar(pb, i)
+      next
+    }
+
+    tryCatch({
+      formula <- as.formula(paste("Surv(permth_int, mortstat) ~", a, "+ RIAGENDR + RIDRETH1 + RIDAGEYR"))
+      model <- svycoxph(formula, design = nhanes_design)
+      model_sum <- summary(model)
+      coef_df <- as.data.frame(model_sum$coefficients)
+      coef_df$variable <- rownames(coef_df)
+      coef_df$model_attribute <- a
+      coef_df$signif <- sapply(coef_df$`Pr(>|z|)`, get_signif)
+      # Select and reorder columns, rename for consistency
+      new_row <- coef_df[, c("model_attribute", "variable", "coef", "exp(coef)", "se(coef)", "z", "Pr(>|z|)", "signif")]
+      names(new_row) <- c("model_attribute", "variable", "coef", "exp_coef", "se_coef", "z", "p", "signif")
+      results_df <- rbind(results_df, new_row)
+    }, error = function(e) {
+      message("❌ Error in ", a, ": ", conditionMessage(e))
+    })
+    setTxtProgressBar(pb, i)
+  }
+  close(pb)
+  
+  # Filter and adjust
+  filtered_df <- subset(results_df, model_attribute == variable)
+  filtered_df$adj_p <- p.adjust(filtered_df$p, method = "BH")
+  filtered_df$adj_signif <- sapply(filtered_df$adj_p, get_signif)
+  filtered_df <- filtered_df[order(filtered_df$adj_p), ]
+  
+  write.csv(results_df, file = output_file, row.names = FALSE)
+  write.csv(filtered_df, file = signif_output_file, row.names = FALSE)
+  
+  return(filtered_df)
+}
+
+```
+
+```{r}
+data_df$RIAGENDR <- factor(data_df$RIAGENDR)
+data_df$RIDRETH1 <- factor(data_df$RIDRETH1)
+
+nhanes_design <- svydesign(
+  ids = ~SDMVPSU,
+  strata = ~SDMVSTRA,
+  weights = ~WTMEC2YR,
+  nest = TRUE,
+  data = data_df
+)
+
+result <- svycoxph_cox(
+  data = data_df,
+  nhanes_design = nhanes_design,
+  surv_attr = top_attr,
+  output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/svycoxph_reg.csv",
+  signif_output_file = "~/Documents/PA_analysis/Datasets/NormalizedData/adj_p_svycoxph_reg.csv"
+)
+```
+```{r}
+install.packages(c("xgboost","devtools"))
+```
+```{r}
+library(devtools)
+library(xgboost)
+```
+
+```{r}
+devtools::install_github("IyarLin/survXgboost")
+```
+```{r}
+library(survXgboost)
+library(xgboost)
+library(survival)
+```
+
+```{r}
+features <- setdiff(names(data_df), c("permth_int","mortstat"))
+x <- as.matrix(df[,features])
+```
+
+```{r}
+y_label <- ifelse(df$mortstat==1,
+                  df$permth_int,
+                  -df$permth_int)
+```
+
+```{r}
+set.seed(42)
+n <- nrow(x)
+
+train_idx <- sample(seq_len(n),
+                    size = 0.8*n)
+
+x_train <- x[train_idx,]
+y_train <- y_label[train_idx]
+x_val <- x[-train_idx,]
+y_val   <- y_label[-train_idx]  
+```
+
+```{r}
+xgb_train_dmat <- xgb.DMatrix(data = x_train, label = y_train)
+xgb_val_dmat   <- xgb.DMatrix(data = x_val, label = y_val)
+```
+
+```{r}
+params <- list(
+  objective = "survival:cox",
+  eval_metric = "cox-nloglik",
+  eta = 0.05,
+  max_depth = 3,
+  min_child_weight = 1
+)
+```
+
+```{r}
+surv_xgboost_model <- xgb.train.surv(
+  params = params, 
+  data = x_train,
+  label = y_train,
+  watchlist = list(val = xgb_val_dmat),
+  nrounds = 1000,
+  early_stopping_rounds = 30,
+  verbose = 1
+)
+```
+```{r}
+risk_scores <- predict(surv_xgboost_model, x_val)
+```
+
+```{r}
+val_time <- abs(y_label[-train_idx])
+val_event <- ifelse(y_label[-train_idx] > 0, 1, 0)
+```
+
+```{r}
+library(survival)
+
+SurvObj <- Surv(val_time, val_event)
+surv_concordance <- concordance(SurvObj ~ risk_scores)
+c_idx <- surv_concordance$concordance
+
+cat("C-index on validation set:",c_idx,"\n")
+```
+```{r}
+times <- seq(10,200,10)
+
+surv_curves <- predict(object = surv_xgboost_model,
+                       newdata = x_train,
+                       type = "surv",
+                       times = times)
+```
+
+```{r}
+matplot(times, t(surv_curves[1:5, ]), type = "l")
+```
+```{r}
+hist(risk_scores)
+```
+reference: https://github.com/IyarLin/survXgboost
+
